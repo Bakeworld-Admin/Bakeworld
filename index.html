@@ -972,7 +972,14 @@ async function startApp() {
   ]);
 
   syncDropdowns();
-  renderOrderItems();
+
+  if (isSupervisor()) {
+    // Now data is loaded — render the supervisor screen properly
+    renderSupervisor();
+  } else {
+    renderOrderItems();
+  }
+
   if (isAdmin()) renderUserList();
 
   // Lock outlet for outlet users
@@ -1775,6 +1782,15 @@ async function renderSupervisor() {
   if (!dateEl) return;
   const date = dateEl.value || todayISO();
   dateEl.value = date;
+
+  // Always fetch fresh orders from Sheets
+  const summaryEl2 = document.getElementById('supervisorSummary');
+  if (summaryEl2) summaryEl2.innerHTML = '<div class="loading"><div class="spinner"></div><br>Loading orders…</div>';
+  try {
+    const res = await api('getOrders', {});
+    orders = res.rows.map(r => ({...r, total:Number(r.total), items: typeof r.items==='string'?JSON.parse(r.items):r.items||[]}));
+    lsS('bw_cache_orders', orders);
+  } catch(e) { /* use cached */ }
 
   // Get orders for selected date
   let dayOrders = orders.filter(o => {
