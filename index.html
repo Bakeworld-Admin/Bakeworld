@@ -210,6 +210,18 @@
     .bar-track{background:#f0e4d8;border-radius:20px;height:7px}
     .bar-fill{background:var(--brand2);height:7px;border-radius:20px}
 
+    /* ── SUPERVISOR ── */
+    .prod-row{display:flex;align-items:center;padding:9px 0;border-bottom:1px solid #f5e6d9}
+    .prod-row:last-child{border-bottom:none}
+    .prod-name{flex:1;font-size:0.85rem;font-weight:600;color:var(--text)}
+    .prod-qty{font-size:1.1rem;font-weight:800;color:var(--brand);min-width:52px;text-align:right}
+    .prod-unit{font-size:0.7rem;color:#aaa;margin-left:3px}
+    .outlet-order-card{background:white;border-radius:12px;padding:13px;margin-bottom:10px;box-shadow:0 1px 6px rgba(0,0,0,0.06);border-left:4px solid #e07b39}
+    .outlet-order-title{font-size:0.92rem;font-weight:800;color:var(--brand);margin-bottom:8px;display:flex;justify-content:space-between;align-items:center}
+    .sup-empty{text-align:center;padding:30px;color:#bbb;font-size:0.85rem}
+    .sup-date-label{font-size:0.78rem;color:var(--muted);margin-bottom:8px;font-weight:600}
+    .print-btn{background:#1565c0;color:white;border:none;border-radius:8px;padding:7px 14px;font-size:0.76rem;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:4px}
+
     /* ── ADMIN ── */
     .user-row{display:flex;align-items:center;justify-content:space-between;padding:11px 0;border-bottom:1px solid #f5e6d9}
     .user-row:last-child{border-bottom:none}
@@ -466,11 +478,37 @@
     <div id="outletCardList"><div class="loading"><div class="spinner"></div><br>Loading outlets…</div></div>
   </div>
 
-  <!-- DASHBOARD -->
+  <!-- DASHBOARD (admin stats) -->
   <div id="screen-dashboard" class="screen">
     <div class="stat-row" id="statRow"></div>
     <div class="card"><h2>📈 Top Ordered Items</h2><div id="topItems"><div class="empty-state">No orders yet</div></div></div>
     <div class="card"><h2>🏪 Orders by Outlet</h2><div id="outletBreakdown"><div class="empty-state">No orders yet</div></div></div>
+  </div>
+
+  <!-- KT SUPERVISOR SCREEN -->
+  <div id="screen-supervisor" class="screen">
+    <div class="card" style="padding-bottom:10px">
+      <h2>👨‍🍳 Production Summary</h2>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <input type="date" id="supervisorDate" style="flex:1" onchange="renderSupervisor()"/>
+        <button class="btn btn-primary btn-sm" onclick="renderSupervisor()">🔄 Refresh</button>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap" id="supervisorStatusFilter">
+        <span class="filter-chip active" onclick="setSupervisorFilter(this,'')" >All</span>
+        <span class="filter-chip" onclick="setSupervisorFilter(this,'Pending')">Pending</span>
+        <span class="filter-chip" onclick="setSupervisorFilter(this,'Confirmed')">Confirmed</span>
+        <span class="filter-chip" onclick="setSupervisorFilter(this,'Dispatched')">Dispatched</span>
+      </div>
+    </div>
+
+    <!-- COMBINED PRODUCTION SUMMARY -->
+    <div class="card" id="supervisorSummaryCard">
+      <h2>📦 Combined Production List</h2>
+      <div id="supervisorSummary"><div class="empty-state">Select a date above</div></div>
+    </div>
+
+    <!-- OUTLET-WISE BREAKDOWN -->
+    <div id="supervisorOutletCards"></div>
   </div>
 
   <!-- ADMIN -->
@@ -488,7 +526,7 @@
         <label>Role</label>
         <select id="newUserRole" onchange="toggleOutletField()">
           <option value="outlet">Outlet Staff</option>
-          <option value="superuser">Superuser</option>
+          <option value="superuser">KT Supervisor</option>
           <option value="admin">Admin</option>
         </select>
       </div>
@@ -720,7 +758,8 @@ const getProduct = id => products.find(p => String(p.id) === String(id));
 const getOutlet  = id => outlets.find(o => String(o.id) === String(id));
 const getUser    = id => users.find(u => String(u.id) === String(id));
 const isAdmin      = () => session.user?.role === 'admin';
-const isSuperuser  = () => ['superuser','admin'].includes(session.user?.role);
+const isSuperuser  = () => session.user?.role === 'admin';
+const isSupervisor = () => session.user?.role === 'superuser';
 const isOutletUser = () => session.user?.role === 'outlet';
 const myOutletId   = () => session.user?.outletId;
 
@@ -804,7 +843,7 @@ function connectSheets() {
 // ═══════════════════════════════════════════════════════
 const ROLES = [
   { id:'outlet',    icon:'🏪', label:'Outlet Staff' },
-  { id:'superuser', icon:'⭐', label:'Superuser'    },
+  { id:'superuser', icon:'👨‍🍳', label:'KT Supervisor' },
   { id:'admin',     icon:'🛡️', label:'Admin'        },
 ];
 
@@ -899,10 +938,23 @@ async function startApp() {
   const u = session.user;
   const outlet = u.outletId ? getOutlet(u.outletId) : null;
   document.getElementById('headerSub').textContent   = outlet ? `🏪 ${outlet.name}` : 'All Outlets';
-  document.getElementById('roleBadge').textContent   = u.role==='admin'?'🛡️ Admin':u.role==='superuser'?'⭐ Super':'🏪 '+(outlet?.name||'');
+  document.getElementById('roleBadge').textContent   = u.role==='admin'?'🛡️ Admin':u.role==='superuser'?'👨‍🍳 KT Supervisor':'🏪 '+(outlet?.name||'');
   document.getElementById('addProductCard').style.display = isSuperuser() ? 'block' : 'none';
+  // Supervisor: hide order/template/history nav items — only supervisor screen shown
+  if (isSupervisor()) {
+    document.getElementById('deliveryDate') && (document.getElementById('deliveryDate').min = todayISO());
+  }
 
   buildNav();
+
+  // Set supervisor date default
+  const supDate = document.getElementById('supervisorDate');
+  if (supDate) supDate.value = todayISO();
+
+  // Redirect supervisor to their screen on login
+  if (session.user.role === 'superuser') {
+    setTimeout(() => showScreen('supervisor', document.getElementById('nav-supervisor')), 100);
+  }
 
   const today = todayISO();
   document.getElementById('deliveryDate').value = today;
@@ -989,13 +1041,14 @@ function doLogout() {
 function buildNav() {
   const role = session.user.role;
   const tabs = [
-    { id:'order',     icon:'📋', label:'Order',    roles:['outlet','superuser','admin'] },
-    { id:'history',   icon:'📦', label:'History',  roles:['outlet','superuser','admin'] },
-    { id:'template',  icon:'⭐', label:'Template', roles:['outlet','superuser','admin'] },
-    { id:'catalog',   icon:'🗂️', label:'Catalog',  roles:['outlet','superuser','admin'] },
-    { id:'outlets',   icon:'🏪', label:'Outlets',  roles:['superuser','admin'] },
-    { id:'dashboard', icon:'📊', label:'Stats',    roles:['superuser','admin'] },
-    { id:'admin',     icon:'🛡️', label:'Admin',    roles:['admin'] },
+    { id:'order',      icon:'📋', label:'Order',      roles:['outlet','admin'] },
+    { id:'history',    icon:'📦', label:'History',    roles:['outlet','admin'] },
+    { id:'template',   icon:'⭐', label:'Template',   roles:['outlet','admin'] },
+    { id:'catalog',    icon:'🗂️', label:'Catalog',    roles:['outlet','admin'] },
+    { id:'supervisor', icon:'👨‍🍳', label:'Production', roles:['superuser'] },
+    { id:'outlets',    icon:'🏪', label:'Outlets',    roles:['admin'] },
+    { id:'dashboard',  icon:'📊', label:'Stats',      roles:['admin'] },
+    { id:'admin',      icon:'🛡️', label:'Admin',      roles:['admin'] },
   ];
   const visible = tabs.filter(t => t.roles.includes(role));
   document.getElementById('navInner').innerHTML = visible.map(t => `
@@ -1017,6 +1070,7 @@ function showScreen(name, btn, silent) {
     if (name==='template')  renderTemplateTab();
     if (name==='catalog')   loadProducts().then(renderCatalog);
     if (name==='outlets')   loadOutlets().then(renderOutletsTab);
+    if (name==='supervisor') loadOrders().then(renderSupervisor);
     if (name==='dashboard') renderDashboard();
     if (name==='admin')     loadUsers().then(renderUserList);
     document.querySelector('.page-body').scrollTo(0,0);
@@ -1623,7 +1677,7 @@ function renderDashboard(){
 function renderUserList(){
   const el=document.getElementById('userList');
   if(!users.length){el.innerHTML='<div class="empty-state">No users found</div>';return;}
-  const roleLabel={admin:'🛡️ Admin',superuser:'⭐ Superuser',outlet:'🏪 Outlet Staff'};
+  const roleLabel={admin:'🛡️ Admin',superuser:'👨‍🍳 KT Supervisor',outlet:'🏪 Outlet Staff'};
   el.innerHTML=users.map(u=>{
     const outlet=u.outletId?getOutlet(u.outletId):null;
     return `<div class="user-row">
@@ -1703,6 +1757,170 @@ async function changeMyPin(){
 ['outletModal','orderDetailModal','editOrderModal'].forEach(id=>{
   document.getElementById(id).addEventListener('click',function(e){if(e.target===this){this.classList.remove('open');if(id==='editOrderModal')closeEditOrder();}});
 });
+
+// ═══════════════════════════════════════════════════════
+//  KT SUPERVISOR — PRODUCTION VIEW
+// ═══════════════════════════════════════════════════════
+let supervisorStatusFilter = '';
+
+function setSupervisorFilter(el, val) {
+  supervisorStatusFilter = val;
+  document.querySelectorAll('#supervisorStatusFilter .filter-chip').forEach(c => c.classList.remove('active'));
+  el.classList.add('active');
+  renderSupervisor();
+}
+
+async function renderSupervisor() {
+  const dateEl = document.getElementById('supervisorDate');
+  if (!dateEl) return;
+  const date = dateEl.value || todayISO();
+  dateEl.value = date;
+
+  // Get orders for selected date
+  let dayOrders = orders.filter(o => {
+    const dateMatch = o.deliveryDate === date;
+    const statusMatch = !supervisorStatusFilter || o.status === supervisorStatusFilter;
+    return dateMatch && statusMatch;
+  });
+
+  const summaryEl = document.getElementById('supervisorSummary');
+  const outletCardsEl = document.getElementById('supervisorOutletCards');
+
+  if (!dayOrders.length) {
+    summaryEl.innerHTML = '<div class="sup-empty">📭 No orders for ' + formatDate(date) + '</div>';
+    outletCardsEl.innerHTML = '';
+    return;
+  }
+
+  // ── COMBINED PRODUCTION SUMMARY ──
+  // Aggregate all items across all outlets for this day
+  const combined = {};
+  dayOrders.forEach(o => {
+    (o.items || []).forEach(item => {
+      const key = item.name + '___' + item.unit;
+      if (!combined[key]) combined[key] = { name: item.name, unit: item.unit, qty: 0, cat: '' };
+      combined[key].qty += Number(item.qty);
+      // Get category from products cache
+      const p = products.find(p => p.name === item.name);
+      if (p) combined[key].cat = p.cat;
+    });
+  });
+
+  // Sort by category then name
+  const catOrder = { Bread:1, Pastry:2, Cake:3, Biscuit:4, Savory:5, Seasonal:6 };
+  const sorted = Object.values(combined).sort((a,b) => {
+    const ca = catOrder[a.cat] || 9, cb = catOrder[b.cat] || 9;
+    return ca !== cb ? ca - cb : a.name.localeCompare(b.name);
+  });
+
+  // Group by category for display
+  const byCategory = {};
+  sorted.forEach(item => {
+    const cat = item.cat || 'Other';
+    if (!byCategory[cat]) byCategory[cat] = [];
+    byCategory[cat].push(item);
+  });
+
+  const totalItems = sorted.length;
+  const totalOrders = dayOrders.length;
+  const totalOutlets = [...new Set(dayOrders.map(o => o.outlet))].length;
+
+  summaryEl.innerHTML = `
+    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+      <div style="background:#fff3e0;border-radius:10px;padding:8px 14px;text-align:center;flex:1">
+        <div style="font-size:1.3rem;font-weight:800;color:var(--brand)">${totalOrders}</div>
+        <div style="font-size:0.68rem;color:#888">Orders</div>
+      </div>
+      <div style="background:#e8f5e9;border-radius:10px;padding:8px 14px;text-align:center;flex:1">
+        <div style="font-size:1.3rem;font-weight:800;color:#2e7d32">${totalOutlets}</div>
+        <div style="font-size:0.68rem;color:#888">Outlets</div>
+      </div>
+      <div style="background:#e3f2fd;border-radius:10px;padding:8px 14px;text-align:center;flex:1">
+        <div style="font-size:1.3rem;font-weight:800;color:#0277bd">${totalItems}</div>
+        <div style="font-size:0.68rem;color:#888">Products</div>
+      </div>
+    </div>
+    <button class="print-btn btn-full" onclick="printSupervisor('${date}')">🖨️ Print / Save as PDF</button>
+    <div style="margin-top:12px">
+    ${Object.entries(byCategory).map(([cat, items]) => `
+      <div style="margin-bottom:12px">
+        <div style="font-size:0.68rem;font-weight:800;color:#aaa;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">${cat}</div>
+        ${items.map(item => `
+          <div class="prod-row">
+            <div class="prod-name">${item.name}</div>
+            <div class="prod-qty">${item.qty}<span class="prod-unit">${item.unit}</span></div>
+          </div>`).join('')}
+      </div>`).join('')}
+    </div>`;
+
+  // ── OUTLET-WISE BREAKDOWN ──
+  const outletGroups = {};
+  dayOrders.forEach(o => {
+    if (!outletGroups[o.outlet]) outletGroups[o.outlet] = [];
+    outletGroups[o.outlet].push(o);
+  });
+
+  outletCardsEl.innerHTML = Object.entries(outletGroups).map(([outletName, outletOrders]) => {
+    const outletTotal = outletOrders.reduce((s, o) => s + Number(o.total), 0);
+    const rows = outletOrders.map(o => `
+      <div style="background:#fff8f0;border-radius:8px;padding:10px;margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <span style="font-size:0.8rem;font-weight:700;color:var(--brand)">${o.id}</span>
+          <span style="display:flex;gap:6px;align-items:center">${statusChip(o.status)}<span style="font-size:0.76rem;font-weight:700">⏰ ${o.slot.split('(')[0].trim()}</span></span>
+        </div>
+        <table style="width:100%;border-collapse:collapse">
+          ${(o.items||[]).map(item => `
+            <tr>
+              <td style="font-size:0.78rem;color:var(--muted);padding:3px 0">${item.name}</td>
+              <td style="font-size:0.78rem;font-weight:700;text-align:right;padding:3px 0;white-space:nowrap">${item.qty} ${item.unit}</td>
+            </tr>`).join('')}
+        </table>
+        ${o.notes ? `<div style="margin-top:6px;font-size:0.72rem;color:#888;background:white;border-radius:6px;padding:6px">📝 ${o.notes}</div>` : ''}
+      </div>`).join('');
+
+    return `<div class="outlet-order-card">
+      <div class="outlet-order-title">
+        <span>🏪 ${outletName}</span>
+        <span style="font-size:0.76rem;color:var(--muted);font-weight:400">${outletOrders.length} order${outletOrders.length===1?'':'s'} · ₹${outletTotal.toLocaleString()}</span>
+      </div>
+      ${rows}
+    </div>`;
+  }).join('');
+}
+
+function printSupervisor(date) {
+  const dateLabel = formatDate(date);
+  const summaryEl = document.getElementById('supervisorSummary');
+  const outletEl  = document.getElementById('supervisorOutletCards');
+
+  const win = window.open('', '_blank');
+  win.document.write(`
+    <html><head><title>BakeWorld Production — ${dateLabel}</title>
+    <style>
+      body{font-family:Arial,sans-serif;padding:20px;color:#222;max-width:800px;margin:0 auto}
+      h1{color:#b5451b;font-size:1.3rem;margin-bottom:4px}
+      .sub{font-size:0.8rem;color:#888;margin-bottom:20px}
+      h2{font-size:1rem;color:#b5451b;border-bottom:2px solid #f0d9c8;padding-bottom:4px;margin:18px 0 10px}
+      h3{font-size:0.9rem;color:#444;margin:12px 0 6px}
+      table{width:100%;border-collapse:collapse;margin-bottom:10px}
+      td,th{padding:6px 8px;border-bottom:1px solid #f0d9c8;font-size:0.85rem}
+      th{background:#fff3e0;font-weight:700;text-align:left}
+      .qty{font-weight:800;color:#b5451b;text-align:right}
+      .cat-header{background:#f5e6d9;font-weight:800;font-size:0.75rem;text-transform:uppercase;letter-spacing:1px;color:#7a4f3a}
+      .outlet-section{border:1px solid #f0d9c8;border-radius:8px;padding:12px;margin-bottom:12px;break-inside:avoid}
+      .status{padding:2px 7px;border-radius:10px;font-size:0.72rem;font-weight:700;background:#fff3cd;color:#856404}
+      @media print{body{padding:10px}.no-print{display:none}}
+    </style></head><body>
+    <h1>🥐 BakeWorld — Production Sheet</h1>
+    <div class="sub">Date: <strong>${dateLabel}</strong> &nbsp;|&nbsp; Printed: ${new Date().toLocaleString('en-IN')}</div>
+    <h2>📦 Combined Production List</h2>
+    ${summaryEl.innerHTML.replace(/<button[^>]*>.*?<\/button>/gs, '')}
+    <h2>🏪 Outlet-wise Breakdown</h2>
+    ${outletEl.innerHTML}
+    </body></html>`);
+  win.document.close();
+  win.print();
+}
 
 // ─── INIT ───
 initApp();
